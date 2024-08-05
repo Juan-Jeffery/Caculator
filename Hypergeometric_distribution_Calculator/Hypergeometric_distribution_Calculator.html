@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超幾何分佈計算機</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        input, button {
+            margin: 5px 0;
+        }
+        .formula {
+            font-size: 18px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>超幾何分佈計算機</h1>
+    
+    <label for="N">總數量 (N): </label>
+    <input type="number" id="N" required><br>
+    
+    <label for="K">成功數量 (K): </label>
+    <input type="number" id="K" required><br>
+    
+    <label for="n">抽取數量 (n): </label>
+    <input type="number" id="n" required><br>
+    
+    <label for="k">抽到成功數量 (k): </label>
+    <input type="number" id="k" required><br>
+    
+    <button onclick="calculateHypergeometric()">計算</button>
+    
+    <h2>超幾何分佈機率: <span id="result"></span></h2>
+    
+    <div class="formula">
+        <h3>公式</h3>
+        <p>超幾何分佈的概率可以通過以下公式計算：</p>
+        <p>P(X = k) = (C(K, k) * C(N - K, n - k)) / C(N, n)</p>
+        <p>其中：</p>
+        <ul>
+            <li>C(a, b) 是組合數，計算方法是 C(a, b) = a! / (b! * (a - b)!)</li>
+            <li>N 是總數量</li>
+            <li>K 是總成功數量</li>
+            <li>n 是抽取數量</li>
+            <li>k 是抽到成功數量</li>
+        </ul>
+        <h3>計算方法</h3>
+        <p>1. 計算 C(K, k)：從 K 個成功數量中選擇 k 個成功的組合數</p>
+        <p>2. 計算 C(N - K, n - k)：從剩餘的 N - K 個失敗數量中選擇 n - k 個失敗的組合數</p>
+        <p>3. 計算 C(N, n)：從總共 N 個數量中選擇 n 個的組合數</p>
+        <p>4. 使用公式計算機率 P(X = k)</p>
+    </div>
+    
+    <script>
+        function factorial(x) {
+            if (x === 0) {
+                return 1;
+            }
+            return x * factorial(x - 1);
+        }
+        
+        function combination(n, k) {
+            return factorial(n) / (factorial(k) * factorial(n - k));
+        }
+        
+        function hypergeometric(N, K, n, k) {
+            return (combination(K, k) * combination(N - K, n - k)) / combination(N, n);
+        }
+        
+        function calculateHypergeometric() {
+            const N = parseInt(document.getElementById('N').value);
+            const K = parseInt(document.getElementById('K').value);
+            const n = parseInt(document.getElementById('n').value);
+            const k = parseInt(document.getElementById('k').value);
+            
+            const result = hypergeometric(N, K, n, k);
+            
+            document.getElementById('result').textContent = result.toFixed(10);
+        }
+    </script>
+</body>
+</html>
