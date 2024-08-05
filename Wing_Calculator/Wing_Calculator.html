@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>飛行計算器</title>
+    <script>
+        function calculate() {
+            // Get input values
+            let weight = parseFloat(document.getElementById('weight').value);
+            let thigh_length = parseFloat(document.getElementById('thigh_length').value);
+            let thigh_circumference = parseFloat(document.getElementById('thigh_circumference').value);
+            let calf_length = parseFloat(document.getElementById('calf_length').value);
+            let calf_circumference = parseFloat(document.getElementById('calf_circumference').value);
+            let instep_length = parseFloat(document.getElementById('instep_length').value);
+            let instep_circumference = parseFloat(document.getElementById('instep_circumference').value);
+
+            // Calculations
+            let The_root_sign_of_weight = Math.sqrt(weight);
+
+            // 大腿正面表面積(m2)
+            let thigh_front_surface_area_m2 = ((thigh_length * thigh_circumference) + 2 * ((thigh_circumference ** 2) / 4 * Math.PI)) * 0.0001 / 2;
+
+            // 小腿正面表面積(m2)
+            let Calf_front_surface_area_m2 = ((calf_length * calf_circumference) + 2 * ((calf_circumference ** 2) / 4 * Math.PI)) * 0.0001 / 2;
+
+            // 腳背表面積(m2)
+            let Instep_surface_area = (instep_length * instep_circumference) * 0.0001;
+
+            // 兩隻腳打水正面表面積和(m2)
+            let The_sum_of_the_front_surface_areas_of_two_feet_pumping_water = thigh_front_surface_area_m2 * 2 + Calf_front_surface_area_m2 * 2 + Instep_surface_area * 2;
+
+            // 空氣密度(g/cm3)
+            let Air_density = 0.0012;
+
+            // 水密度(g/cm3)
+            let water_density = 1.0025;
+
+            // 空氣密度/水密度後開根號
+            let water_density_conversion = Math.sqrt(Air_density / water_density);
+
+            // 通用振翅頻率(Hz)
+            let Wing_beat_frequency = The_sum_of_the_front_surface_areas_of_two_feet_pumping_water / The_root_sign_of_weight;
+
+            // 打水頻率(Hz)
+            let Water_pumping_frequency = (The_sum_of_the_front_surface_areas_of_two_feet_pumping_water / The_root_sign_of_weight) * water_density_conversion;
+
+            // Display results
+            document.getElementById('results').innerHTML = 
+                '每秒需 ' + Wing_beat_frequency.toFixed(2) + ' 次擺動才能起飛！<br>' +
+                '每秒需 ' + Water_pumping_frequency.toFixed(2) + ' 次擺動才能跟鯨魚油的一樣快！';
+        }
+    </script>
+</head>
+<body>
+    <h1>飛行計算器</h1>
+    <form onsubmit="event.preventDefault(); calculate();">
+        <label for="weight">體重(kg)：</label>
+        <input type="number" id="weight" step="0.01" required><br><br>
+
+        <label for="thigh_length">大腿長度(cm)：</label>
+        <input type="number" id="thigh_length" step="0.01" required><br><br>
+
+        <label for="thigh_circumference">大腿肚圍(cm)：</label>
+        <input type="number" id="thigh_circumference" step="0.01" required><br><br>
+
+        <label for="calf_length">小腿長度(cm)：</label>
+        <input type="number" id="calf_length" step="0.01" required><br><br>
+
+        <label for="calf_circumference">小腿肚圍(cm)：</label>
+        <input type="number" id="calf_circumference" step="0.01" required><br><br>
+
+        <label for="instep_length">腳背長度(cm)：</label>
+        <input type="number" id="instep_length" step="0.01" required><br><br>
+
+        <label for="instep_circumference">腳背寬度(cm)：</label>
+        <input type="number" id="instep_circumference" step="0.01" required><br><br>
+
+        <input type="submit" value="計算">
+    </form>
+
+    <div id="results"></div>
+</body>
+</html>
