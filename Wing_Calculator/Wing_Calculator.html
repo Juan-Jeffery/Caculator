@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>飛行計算器</title>
+    <title>飛行計算機</title>
     <script>
         function calculate() {
             // Get input values
@@ -46,12 +46,12 @@
             // Display results
             document.getElementById('results').innerHTML = 
                 '每秒需 ' + Wing_beat_frequency.toFixed(2) + ' 次擺動才能起飛！<br>' +
-                '每秒需 ' + Water_pumping_frequency.toFixed(2) + ' 次擺動才能跟鯨魚油的一樣快！';
+                '每秒需 ' + Water_pumping_frequency.toFixed(2) + ' 次擺動才能跟鯨魚游的一樣快！';
         }
     </script>
 </head>
 <body>
-    <h1>飛行計算器</h1>
+    <h1>飛行計算機</h1>
     <form onsubmit="event.preventDefault(); calculate();">
         <label for="weight">體重(kg)：</label>
         <input type="number" id="weight" step="0.01" required><br><br>
