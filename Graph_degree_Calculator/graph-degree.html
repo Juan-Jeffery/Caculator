@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>互動圖形 - 計算節點度數 (Degree)</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body{font-family: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", Arial; margin:0; display:flex; height:100vh}
+    #left{width:300px; border-right:1px solid #ddd; padding:12px; box-sizing:border-box; overflow:auto}
+    #canvas{flex:1; position:relative}
+    svg{width:100%; height:100%}
+    .node{cursor:move; stroke:#333; stroke-width:1px}
+    .node text{pointer-events:none; font-size:12px}
+    .link{stroke:#999; stroke-width:2px}
+    button, input, select{margin:6px 0; width:100%; padding:6px}
+    .small{width:48%; display:inline-block}
+    .row{display:flex; gap:4px}
+    pre{background:#f7f7f7; padding:8px}
+    .info{font-size:13px; color:#333}
+    button.active{background:#0a74ff; color:#fff; border: none}
+  </style>
+</head>
+<body>
+  <div id="left">
+    <h3>互動圖形 (計算 Degree)</h3>
+    <div class="info">點擊「新增節點」或在畫面任意處雙擊新增；或使用表單新增。<br>新增連線：按「新增連線」後點選源節點再點目標節點。拖動節點可重新排版。</div>
+
+    <label>圖類型</label>
+    <select id="graphType">
+      <option value="undirected" selected>無向圖 (degree)</option>
+      <option value="directed">有向圖 (in/out degree)</option>
+    </select>
+
+    <button id="addNodeBtn">新增節點</button>
+    <button id="addEdgeBtn">新增連線</button>
+    <button id="deleteModeBtn">刪除模式</button>
+    <button id="clearBtn">清空圖</button>
+
+    <hr>
+    <label>節點名稱 (可空白自動編號)</label>
+    <input id="nodeName" placeholder="節點名稱 (e.g., A)" />
+    <div class="row"><button id="createNodeForm">建立節點</button><button id="createNodeRandom">建立 5 個</button></div>
+
+    <hr>
+    <h4>資料輸出 / 輸入</h4>
+    <button id="exportBtn">匯出 JSON</button>
+    <input type="file" id="importFile" />
+
+    <hr>
+    <h4>節點度數</h4>
+    <div id="degreeList"></div>
+
+    <hr>
+    <h4>鄰接表 (Adjacency List)</h4>
+    <pre id="adjlist"></pre>
+
+    <h4>鄰接矩陣 (Adjacency Matrix)</h4>
+    <pre id="adjmatrix"></pre>
+
+    <hr>
+    <small>支援：匯入 / 匯出 JSON；有向/無向；可視化；即時顯示度數。</small>
+  </div>
+
+  <div id="canvas">
+    <svg></svg>
+  </div>
+
+<script>
+(() => {
+  const width = window.innerWidth - 300;
+  const height = window.innerHeight;
+  const svg = d3.select('svg')
+    .attr('viewBox', [0,0,width,height]);
+
+  let nodes = [];
+  let links = [];
+  let nodeIdCounter = 0;
+  // how long (ms) to keep a new node fixed at its insertion position before releasing
+  const NEW_NODE_HOLD_MS = 300;
+  // mode kept mainly for delete toggle; adding nodes and edges will be done by clicks
+  let mode = 'none'; // 'none','addNode','delete'
+  // tempEdgeSource: when a node is clicked first, it's stored here until a second node is clicked to create an edge
+  let tempEdgeSource = null;
+
+  const graphTypeSelect = document.getElementById('graphType');
+  function isDirected(){ return graphTypeSelect.value === 'directed' }
+
+  // force simulation
+  // configurable force constants
+  const CHARGE_STRENGTH = -60; // negative = repulsive; smaller magnitude => weaker repulsion
+  const LINK_DISTANCE = 100;
+
+  const simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(LINK_DISTANCE).strength(1))
+    .force('charge', d3.forceManyBody().strength(CHARGE_STRENGTH))
+    .force('center', d3.forceCenter(width/2, height/2))
+    .on('tick', ticked);
+
+  const linkGroup = svg.append('g');
+  const nodeGroup = svg.append('g');
+
+  function addNode(x = width/2, y = height/2, name = ''){
+    const id = 'n' + (++nodeIdCounter);
+    const node = {id, name: name || id, x, y};
+    // small initial velocity (kept at zero by default)
+    node.vx = 0;
+    node.vy = 0;
+    // temporarily fix the node at the insertion point to avoid immediate large pushes
+    node.fx = x;
+    node.fy = y;
+    nodes.push(node);
+    restart();
+
+    // release the fixed position after a short delay so the node can participate in the simulation
+    setTimeout(() => {
+      const n = nodes.find(n=>n.id===node.id);
+      if(n){ n.fx = null; n.fy = null; }
+      // nudge the simulation so the release takes effect
+      simulation.alpha(0.3).restart();
+    }, NEW_NODE_HOLD_MS);
+
+    return node;
+  }
+
+  function addLink(source, target){
+    // source/target can be ids or node objects
+    if(typeof source === 'string') source = nodes.find(n=>n.id===source);
+    if(typeof target === 'string') target = nodes.find(n=>n.id===target);
+    if(!source || !target) return;
+    // avoid duplicate edges in undirected graph
+    if(!isDirected()){
+      const exists = links.find(l => (l.source.id === source.id && l.target.id === target.id) || (l.source.id === target.id && l.target.id === source.id));
+      if(exists) return;
+    } else {
+      const exists = links.find(l => l.source.id === source.id && l.target.id === target.id);
+      if(exists) return;
+    }
+    links.push({source: source.id, target: target.id});
+    restart();
+  }
+
+  function removeNode(node){
+    nodes = nodes.filter(n=>n.id !== node.id);
+    links = links.filter(l => l.source.id !== node.id && l.target.id !== node.id && l.source !== node.id && l.target !== node.id);
+    restart();
+  }
+
+  function removeLinkBetween(a,b){
+    links = links.filter(l => {
+      if(isDirected()) return !( (l.source.id === a.id && l.target.id === b.id) );
+      return !( (l.source.id === a.id && l.target.id === b.id) || (l.source.id === b.id && l.target.id === a.id) );
+    });
+    restart();
+  }
+
+  function clearGraph(){ nodes = []; links = []; nodeIdCounter = 0; restart(); }
+
+  function restart(){
+    // rebind simulation data
+    simulation.nodes(nodes);
+    simulation.force('link').links(links);
+
+    // LINKS
+    const link = linkGroup.selectAll('.link').data(links, d => (d.source.id?d.source.id:d.source) + '->' + (d.target.id?d.target.id:d.target));
+    link.exit().remove();
+    const linkEnter = link.enter().append('g').attr('class','link');
+    linkEnter.append('line').attr('class','edge-line');
+    linkEnter.append('path').attr('class','edge-arrow');
+
+    // link click handler: allow deleting a link when in delete mode
+    linkGroup.selectAll('.link').on('click', (e,d)=>{
+      e.stopPropagation();
+      if(mode === 'delete'){
+        if(confirm('刪除連線?')){
+          // d.source and d.target are node objects after simulation binds
+          removeLinkBetween(d.source, d.target);
+        }
+      }
+    });
+
+    // NODES
+    const node = nodeGroup.selectAll('.node').data(nodes, d=>d.id);
+    node.exit().remove();
+    const nodeEnter = node.enter().append('g').attr('class','node').call(d3.drag()
+      .on('start', dragstarted)
+      .on('drag', dragged)
+      .on('end', dragended)
+    );
+    nodeEnter.append('circle').attr('r',20).attr('fill','#fff');
+    nodeEnter.append('text').attr('dy',4).attr('text-anchor','middle').text(d=>d.name);
+
+    // merge
+    // node click behaviour: single click selects/follows linking; dblclick unlocks position
+    nodeGroup.selectAll('.node').on('dblclick', (e,d)=>{ d.fixed = false; })
+      .on('click', (e,d)=>{
+        e.stopPropagation();
+        // delete mode takes precedence
+        if(mode === 'delete'){
+          if(confirm('刪除節點 ' + d.name + ' ?')) removeNode(d);
+          return;
+        }
+        // Only create/select for linking when in addEdge mode
+        if(mode === 'addEdge'){
+          // If no tempEdgeSource, set this node as source (visual highlight)
+          if(!tempEdgeSource){
+            tempEdgeSource = d;
+            d3.selectAll('.node circle').style('stroke-width', 1);
+            d3.select(e.currentTarget).select('circle').style('stroke-width',3);
+            return;
+          }
+
+          // If clicking the same node, deselect
+          if(tempEdgeSource.id === d.id){
+            tempEdgeSource = null;
+            d3.selectAll('.node circle').style('stroke-width', 1);
+            return;
+          }
+
+          // Otherwise, create link from tempEdgeSource -> clicked node
+          addLink(tempEdgeSource, d);
+          tempEdgeSource = null;
+          d3.selectAll('.node circle').style('stroke-width', 1);
+        }
+      });
+
+    nodeGroup.selectAll('.node').on('contextmenu', (e,d)=>{ e.preventDefault();
+      // right click to delete link from selected node to clicked node (if previously selected)
+    });
+
+    simulation.alpha(0.8).restart();
+
+    updateInfo();
+    // sync button active states
+    if(typeof updateModeButtons === 'function') updateModeButtons();
+  }
+
+  function ticked(){
+    // update link positions
+    linkGroup.selectAll('.link').select('line').attr('x1', d => (d.source.x)).attr('y1', d => (d.source.y))
+      .attr('x2', d => (d.target.x)).attr('y2', d => (d.target.y));
+
+    // arrow path for directed
+    linkGroup.selectAll('.link').select('path').attr('d', d=>{
+      if(!isDirected()) return '';
+      const sx=d.source.x, sy=d.source.y, tx=d.target.x, ty=d.target.y;
+      const dx = tx - sx; const dy = ty - sy; const dist = Math.hypot(dx,dy);
+      if(dist === 0) return '';
+      const ux = dx/dist, uy = dy/dist;
+      const arrowSize = 8;
+      const ax = tx - ux*22, ay = ty - uy*22; // position arrow before circle
+      // simple triangular arrow using path
+      const leftx = ax - uy*arrowSize, lefty = ay + ux*arrowSize;
+      const rightx = ax + uy*arrowSize, righty = ay - ux*arrowSize;
+      return `M ${leftx} ${lefty} L ${ax} ${ay} L ${rightx} ${righty}`;
+    });
+
+    nodeGroup.selectAll('.node').attr('transform', d=>`translate(${d.x},${d.y})`);
+  }
+
+  function dragstarted(event,d){ if(!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+  function dragged(event,d){ d.fx = event.x; d.fy = event.y; }
+  function dragended(event,d){ if(!event.active) simulation.alphaTarget(0); /*d.fx = null; d.fy = null;*/ }
+
+  // UI handlers
+  const addNodeBtn = document.getElementById('addNodeBtn');
+  const addEdgeBtn = document.getElementById('addEdgeBtn');
+  const deleteModeBtn = document.getElementById('deleteModeBtn');
+
+  function updateModeButtons(){
+    addNodeBtn.classList.toggle('active', mode==='addNode');
+    addEdgeBtn.classList.toggle('active', mode==='addEdge');
+    deleteModeBtn.classList.toggle('active', mode==='delete');
+  }
+
+  // 新增節點按鈕：切換到 addNode 狀態
+  addNodeBtn.addEventListener('click', ()=>{ mode = mode==='addNode' ? 'none' : 'addNode'; tempEdgeSource = null; updateModeButtons(); alert(mode==='addNode' ? '點一次畫布新增節點（使用左側名稱欄位）' : '離開新增節點模式'); });
+
+  // 新增連線按鈕：切換到 addEdge 模式
+  addEdgeBtn.addEventListener('click', ()=>{ mode = mode==='addEdge' ? 'none' : 'addEdge'; tempEdgeSource = null; updateModeButtons(); alert(mode==='addEdge' ? '請點選節點 A，再點選節點 B 建立連線' : '離開新增連線模式'); });
+  deleteModeBtn.addEventListener('click', ()=>{ mode = mode==='delete' ? 'none' : 'delete'; tempEdgeSource = null; updateModeButtons(); alert('刪除模式: ' + (mode==='delete'?'開啟':'關閉')); });
+  document.getElementById('clearBtn').addEventListener('click', ()=>{ if(confirm('清空整個圖？')) clearGraph(); });
+
+  document.getElementById('createNodeForm').addEventListener('click', ()=>{
+    const name = document.getElementById('nodeName').value.trim();
+    addNode(Math.random()*width, Math.random()*height, name);
+  });
+  document.getElementById('createNodeRandom').addEventListener('click', ()=>{
+    for(let i=0;i<5;i++) addNode(Math.random()*width, Math.random()*height);
+  });
+
+  // canvas click to add node when in addNode mode
+  svg.on('click', (e)=>{
+    const p = d3.pointer(e);
+    // if clicking on empty canvas area and in addNode mode, create node using name input
+    if(mode === 'addNode' && e.target.tagName === 'svg'){
+      const name = document.getElementById('nodeName').value.trim();
+      addNode(p[0], p[1], name);
+      // keep in addNode mode so user can add multiple; user can click addNode again to toggle off
+      return;
+    }
+  });
+
+  // export / import
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const data = {nodes: nodes.map(n=>({id:n.id,name:n.name,x:n.x,y:n.y})), links: links.map(l=>({source: l.source.id?l.source.id:l.source, target: l.target.id?l.target.id:l.target})), directed: isDirected() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'graph.json'; a.click(); URL.revokeObjectURL(url);
+  });
+  document.getElementById('importFile').addEventListener('change', (e)=>{
+    const f = e.target.files[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{
+        const j = JSON.parse(reader.result);
+        nodes = j.nodes.map(n=>({id:n.id,name:n.name,x:n.x,y:n.y}));
+        links = j.links.map(l=>({source: l.source, target: l.target}));
+        nodeIdCounter = nodes.length;
+        if(j.directed){ document.getElementById('graphType').value = j.directed ? 'directed' : 'undirected'; }
+        restart();
+      }catch(err){ alert('JSON 錯誤：'+err.message) }
+    };
+    reader.readAsText(f);
+  });
+
+  // compute degrees & adjacency
+  function computeDegrees(){
+    const deg = {};
+    nodes.forEach(n=>{ deg[n.id] = {id:n.id,name:n.name, degree:0, in:0, out:0} });
+    links.forEach(l=>{
+      const s = (l.source.id?l.source.id:l.source);
+      const t = (l.target.id?l.target.id:l.target);
+      if(isDirected()){
+        deg[s].out += 1; deg[t].in += 1; deg[s].degree = deg[s].in + deg[s].out; deg[t].degree = deg[t].in + deg[t].out;
+      } else {
+        deg[s].degree += 1; deg[t].degree += 1;
+      }
+    });
+    return deg;
+  }
+
+  function buildAdjList(){
+    const map = {};
+    nodes.forEach(n=> map[n.id] = []);
+    links.forEach(l=>{
+      const s = (l.source.id?l.source.id:l.source);
+      const t = (l.target.id?l.target.id:l.target);
+      map[s].push(t);
+      if(!isDirected()) map[t].push(s);
+    });
+    return map;
+  }
+
+  function buildAdjMatrix(){
+    const ids = nodes.map(n=>n.id);
+    const index = {};
+    ids.forEach((id,i)=>index[id]=i);
+    const mat = Array.from({length:ids.length}, ()=> Array(ids.length).fill(0));
+    links.forEach(l=>{
+      const s = (l.source.id?l.source.id:l.source);
+      const t = (l.target.id?l.target.id:l.target);
+      mat[index[s]][index[t]] = 1;
+      if(!isDirected()) mat[index[t]][index[s]] = 1;
+    });
+    return {ids, mat};
+  }
+
+  function updateInfo(){
+    // degrees
+    const deg = computeDegrees();
+    const container = document.getElementById('degreeList'); container.innerHTML = '';
+    nodes.forEach(n=>{
+      const d = deg[n.id];
+      const div = document.createElement('div');
+      if(isDirected()) div.textContent = `${n.name} (${n.id}) — in: ${d.in}, out: ${d.out}, total: ${d.degree}`;
+      else div.textContent = `${n.name} (${n.id}) — degree: ${d.degree}`;
+      container.appendChild(div);
+    });
+
+    // adjacency list
+    const al = buildAdjList();
+    const alText = nodes.map(n=> `${n.name} (${n.id}) → [${al[n.id] ? al[n.id].map(x=> nodes.find(nn=>nn.id===x)?.name + '('+x+')').join(', ') : ''}]`).join('\n');
+    document.getElementById('adjlist').textContent = alText;
+
+    // adjacency matrix
+    const am = buildAdjMatrix();
+    let matText = '\t' + am.ids.map(id=> nodes.find(n=>n.id===id).name || id).join('\t') + '\n';
+    am.mat.forEach((row,i)=>{ matText += (nodes.find(n=>n.id===am.ids[i]).name || am.ids[i]) + '\t' + row.join('\t') + '\n'; });
+    document.getElementById('adjmatrix').textContent = matText;
+
+    // show numbers near nodes
+    nodeGroup.selectAll('.node').selectAll('text').text(d=>{
+      const dd = deg[d.id];
+      if(!dd) return d.name;
+      if(isDirected()) return `${d.name}\n(${dd.in}/${dd.out})`;
+      return `${d.name}\n(${dd.degree})`;
+    }).style('font-size','12px');
+
+    // style links for directed/undirected
+    linkGroup.selectAll('.link').select('line').attr('marker-end', isDirected() ? 'url(#arrow)' : null);
+  }
+
+  // initial sample
+  addNode(width*0.45, height*0.45, 'A');
+  addNode(width*0.55, height*0.55, 'B');
+  addNode(width*0.65, height*0.45, 'C');
+  addLink('n1','n2');
+  addLink('n2','n3');
+
+  // marker defs for arrows
+  svg.append('defs').append('marker')
+    .attr('id','arrow')
+    .attr('viewBox','0 -5 10 10')
+    .attr('refX', 10)
+    .attr('refY',0)
+    .attr('markerWidth',6)
+    .attr('markerHeight',6)
+    .attr('orient','auto')
+    .append('path').attr('d','M0,-5L10,0L0,5');
+
+  // recompute when graphType changes
+  graphTypeSelect.addEventListener('change', ()=>{ updateInfo(); });
+
+  // click on empty space to cancel addEdge selection
+  document.addEventListener('click', (e)=>{
+    if(e.target.closest('.node')==null){ tempEdgeSource = null; d3.selectAll('.node circle').style('stroke-width', 1); }
+  });
+
+  // window resize recompute viewBox
+  window.addEventListener('resize', ()=>{
+    const w = window.innerWidth - 300; const h = window.innerHeight;
+    svg.attr('viewBox', `0 0 ${w} ${h}`);
+  });
+
+})();
+</script>
+</body>
+</html>
