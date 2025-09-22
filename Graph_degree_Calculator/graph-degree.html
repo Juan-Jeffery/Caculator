@@ -24,8 +24,6 @@
 <body>
   <div id="left">
     <h3>互動圖形 (計算 Degree)</h3>
-    <div class="info">點擊「新增節點」或在畫面任意處雙擊新增；或使用表單新增。<br>新增連線：按「新增連線」後點選源節點再點目標節點。拖動節點可重新排版。</div>
-
     <label>圖類型</label>
     <select id="graphType">
       <option value="undirected" selected>無向圖 (degree)</option>
@@ -68,8 +66,10 @@
 
 <script>
 (() => {
-  const width = window.innerWidth - 300;
-  const height = window.innerHeight;
+  // canvas size (kept as variables so we can update on resize)
+  let width = window.innerWidth - 300;
+  let height = window.innerHeight;
+  const NODE_RADIUS = 20; // keep in sync with circle r attribute
   const svg = d3.select('svg')
     .attr('viewBox', [0,0,width,height]);
 
@@ -255,7 +255,12 @@
       return `M ${leftx} ${lefty} L ${ax} ${ay} L ${rightx} ${righty}`;
     });
 
-    nodeGroup.selectAll('.node').attr('transform', d=>`translate(${d.x},${d.y})`);
+    nodeGroup.selectAll('.node').attr('transform', d=>{
+      // clamp node positions so they stay inside the canvas
+      d.x = Math.max(NODE_RADIUS, Math.min(width - NODE_RADIUS, d.x));
+      d.y = Math.max(NODE_RADIUS, Math.min(height - NODE_RADIUS, d.y));
+      return `translate(${d.x},${d.y})`;
+    });
   }
 
   function dragstarted(event,d){ if(!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
@@ -429,8 +434,10 @@
 
   // window resize recompute viewBox
   window.addEventListener('resize', ()=>{
-    const w = window.innerWidth - 300; const h = window.innerHeight;
-    svg.attr('viewBox', `0 0 ${w} ${h}`);
+    width = window.innerWidth - 300; height = window.innerHeight;
+    svg.attr('viewBox', `0 0 ${width} ${height}`);
+    // update simulation center
+    simulation.force('center', d3.forceCenter(width/2, height/2));
   });
 
 })();
